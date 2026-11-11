@@ -1,10 +1,12 @@
-﻿#!/usr/bin/env sh
-set -eu
+﻿
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData"
+                   DefaultLayout="@typeof(SpotifyDashboard.Layout.MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
 
-# Install the .NET 10 SDK in the Cloudflare build environment
-curl -fsSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
-chmod +x dotnet-install.sh
-./dotnet-install.sh --channel 10.0 --install-dir ./dotnet
-
-# Publish the Blazor WebAssembly application
-./dotnet/dotnet publish -c Release -o output
+    <NotFound>
+        <SpotifyDashboard.Pages.NotFound />
+    </NotFound>
+</Router>

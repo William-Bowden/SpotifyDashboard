@@ -1,8 +1,7 @@
-@* Lyrics for the current track, shown one page at a time. Pages are sized to fit
-   the available height (see js/lyrics.js). Synced lyrics highlight the current
-   line and turn to its page automatically; swiping or the pager buttons flip
-   pages manually (auto-follow pauses for a few seconds afterwards). Tapping a
-   synced line seeks there when this dashboard is controlling the active device. *@
+@* Lyrics for the current track as a scrolling list. Synced lyrics highlight the
+   current line and keep it centred (see js/lyrics.js); auto-scroll pauses for a
+   few seconds while the user scrolls. Tapping a synced line seeks there when this
+   dashboard is controlling the active device. Plain lyrics just scroll. *@
 
 @inject PlaybackController Player
 @inject LyricsService Lyrics
@@ -30,7 +29,7 @@
                 break;
 
             case LoadState.Loaded when _lyrics is { IsSynced: true } synced:
-                <div class="lyrics-pages" @ref="_pagesContainer">
+                <div class="lyrics-scroll" @ref="_scrollContainer">
                     @for (var i = 0; i < synced.SyncedLines.Count; i++)
                     {
                         var index = i;
@@ -43,22 +42,11 @@
                             @(string.IsNullOrWhiteSpace(line.Text) ? "♪" : line.Text)
                         </p>
                     }
-                    <div class="lyrics-spacer" aria-hidden="true"></div>
                 </div>
                 break;
 
-            case LoadState.Loaded when _plainLines.Length > 0:
-                <div class="lyrics-pages plain" @ref="_pagesContainer">
-                    @for (var i = 0; i < _plainLines.Length; i++)
-                    {
-                        <p class="lyrics-line @(string.IsNullOrWhiteSpace(_plainLines[i]) ? "gap" : null)"
-                           data-index="@i"
-                           @key="i">
-                            @_plainLines[i]
-                        </p>
-                    }
-                    <div class="lyrics-spacer" aria-hidden="true"></div>
-                </div>
+            case LoadState.Loaded when _lyrics is { HasPlainLyrics: true } plain:
+                <div class="lyrics-scroll plain">@plain.PlainLyrics</div>
                 break;
 
             case LoadState.Loaded when _lyrics is { IsInstrumental: true }:
@@ -72,30 +60,7 @@
 
         @if (_lyrics is not null)
         {
-            <div class="lyrics-footer">
-                <span class="lyrics-credit">Lyrics from @_lyrics.Source</span>
-
-                @if (HasPages && _pageCount > 1)
-                {
-                    <div class="lyrics-pager">
-                        <button class="icon-button"
-                                disabled="@(_page <= 0)"
-                                aria-label="Previous page"
-                                @onclick="() => FlipAsync(-1)">
-                            <Icon Name="chevron-up" Size="22" />
-                        </button>
-
-                        <span class="lyrics-page-count">@(_page + 1) / @_pageCount</span>
-
-                        <button class="icon-button"
-                                disabled="@(_page >= _pageCount - 1)"
-                                aria-label="Next page"
-                                @onclick="() => FlipAsync(1)">
-                            <Icon Name="chevron-down" Size="22" />
-                        </button>
-                    </div>
-                }
-            </div>
+            <p class="lyrics-credit">Lyrics from @_lyrics.Source</p>
         }
     </section>
 }
@@ -114,25 +79,16 @@
     private SpotifyTrack? _track;
     private string? _trackKey;
     private LyricsResult? _lyrics;
-    private string[] _plainLines = [];
     private LoadState _state;
     private string? _error;
 
     private int _currentLine = -1;
 
-    // Paging state, mirrored from js/lyrics.js.
-    private int _page;
-    private int _pageCount = 1;
-    private bool _layoutPending; // new lines rendered: recompute pages
-    private bool _showLinePending; // current line changed: maybe turn the page
-    private bool _showLineForce;
+    private bool _scrollPending;
+    private bool _scrollForce; // jump straight there (new track / seek), even if the user just scrolled
 
-    private ElementReference _pagesContainer;
+    private ElementReference _scrollContainer;
     private IJSObjectReference? _module;
-    private DotNetObjectReference<LyricsPanel>? _selfRef;
-
-    private bool HasPages =>
-        _state == LoadState.Loaded && (_lyrics is { IsSynced: true } || _plainLines.Length > 0);
 
     protected override void OnInitialized()
     {
@@ -158,7 +114,6 @@
             _track = null;
             _trackKey = null;
             _lyrics = null;
-            _plainLines = [];
             return;
         }
 
@@ -180,7 +135,6 @@
         _loadCts = cts;
 
         _lyrics = null;
-        _plainLines = [];
         _error = null;
         _currentLine = -1;
 
@@ -223,16 +177,10 @@
         _lyrics = result;
         _state = result is null ? LoadState.NotFound : LoadState.Loaded;
 
-        _plainLines = result is { IsSynced: false, HasPlainLyrics: true }
-            ? result.PlainLyrics!.Replace("\r\n", "\n").Trim().Split('\n')
-            : [];
-
         _currentLine = -1;
         UpdateCurrentLine();
-
-        _page = 0;
-        _pageCount = 1;
-        _layoutPending = true;
+        _scrollPending = true;
+        _scrollForce = true;
     }
 
     private Task RetryAsync() => _track is null ? Task.CompletedTask : LoadAsync(_track);
@@ -248,7 +196,7 @@
             return false;
 
         _currentLine = index;
-        _showLinePending = true;
+        _scrollPending = true;
         return true;
     }
 
@@ -273,65 +221,25 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!HasPages || (!_layoutPending && !_showLinePending))
+        if (!_scrollPending || _state != LoadState.Loaded || _lyrics is not { IsSynced: true })
             return;
 
-        var layout = _layoutPending;
-        var force = _showLineForce;
-        _layoutPending = false;
-        _showLinePending = false;
-        _showLineForce = false;
+        var force = _scrollForce;
+        _scrollPending = false;
+        _scrollForce = false;
 
         try
         {
             _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/lyrics.js");
-            _selfRef ??= DotNetObjectReference.Create(this);
-
-            var info = layout
-                ? await _module.InvokeAsync<int[]?>("layout", _pagesContainer, _currentLine, _selfRef)
-                : await _module.InvokeAsync<int[]?>("showLine", _pagesContainer, _currentLine, force);
-
-            ApplyPageInfo(info);
+            await _module.InvokeVoidAsync("scrollToLine", _scrollContainer, _currentLine, force);
         }
         catch (JSException)
         {
-            // Paging is cosmetic; the lines are still rendered.
+            // Scrolling is cosmetic; ignore failures.
         }
         catch (JSDisconnectedException)
         {
         }
-    }
-
-    private async Task FlipAsync(int delta)
-    {
-        if (_module is null)
-            return;
-
-        try
-        {
-            ApplyPageInfo(await _module.InvokeAsync<int[]?>("flip", _pagesContainer, delta));
-        }
-        catch (JSException)
-        {
-        }
-        catch (JSDisconnectedException)
-        {
-        }
-    }
-
-    /// <summary>Called from JS after a swipe, or when a resize changes the page count.</summary>
-    [JSInvokable]
-    public void OnLyricsPageChanged(int page, int count) =>
-        _ = InvokeAsync(() => ApplyPageInfo([page, count]));
-
-    private void ApplyPageInfo(int[]? info)
-    {
-        if (info is not [var page, var count] || (page == _page && count == _pageCount))
-            return;
-
-        _page = page;
-        _pageCount = Math.Max(count, 1);
-        StateHasChanged();
     }
 
     private async Task SeekToLineAsync(LyricsLine line)
@@ -339,8 +247,9 @@
         if (!Player.CanControl)
             return;
 
-        // Make sure the page follows the seek even if the user flipped pages recently.
-        _showLineForce = true;
+        // The tap counts as user interaction (which pauses auto-scroll), so force the
+        // scroll for the render triggered by the seek's optimistic update.
+        _scrollForce = true;
 
         await Player.SeekAsync(line.TimeMs);
     }
@@ -360,17 +269,11 @@
         {
             try
             {
-                await _module.InvokeVoidAsync("detach", _pagesContainer);
                 await _module.DisposeAsync();
-            }
-            catch (JSException)
-            {
             }
             catch (JSDisconnectedException)
             {
             }
         }
-
-        _selfRef?.Dispose();
     }
 }

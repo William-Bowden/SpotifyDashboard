@@ -769,17 +769,22 @@ p {
     font-size: 16px;
 }
 
-.lyrics-pages {
+.lyrics-scroll {
     position: relative; /* lyrics.js measures lines relative to this */
     flex: 1 1 0;
     min-height: 0;
-    overflow: hidden;
-    touch-action: none; /* swipes flip pages instead of scrolling the page */
-    transition: opacity 0.14s ease;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 30% 0; /* replaced by lyrics.js with ~42% of the height */
+    box-sizing: border-box;
+    -webkit-mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent);
+    mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent);
+    scrollbar-width: none;
 }
 
-.lyrics-pages[data-flip] {
-    opacity: 0;
+.lyrics-scroll::-webkit-scrollbar {
+    display: none;
 }
 
 .lyrics-line {
@@ -792,10 +797,6 @@ p {
     color: rgba(255, 255, 255, 0.38);
     transition: color 0.3s ease;
     overflow-wrap: anywhere;
-}
-
-.lyrics-line[data-off] {
-    visibility: hidden;
 }
 
 .lyrics-line.past {
@@ -814,47 +815,21 @@ p {
     color: var(--green);
 }
 
-.lyrics-pages.plain .lyrics-line {
+/* Unsynced lyrics: one block of text, read by scrolling. */
+.lyrics-scroll.plain {
+    padding: 12% 0;
+    white-space: pre-line;
     font-size: 19px;
     font-weight: 600;
+    line-height: 1.55;
     color: rgba(255, 255, 255, 0.85);
-    padding: 2px 0;
-}
-
-.lyrics-pages.plain .lyrics-line.gap {
-    height: 0.8em;
-}
-
-.lyrics-spacer {
-    pointer-events: none;
-}
-
-.lyrics-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    min-height: 44px;
-    margin-top: 8px;
 }
 
 .lyrics-credit {
+    flex-shrink: 0;
+    margin-top: 6px;
     color: var(--text-3);
     font-size: 11px;
-}
-
-.lyrics-pager {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-}
-
-.lyrics-page-count {
-    min-width: 44px;
-    text-align: center;
-    color: var(--text-2);
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Landscape: player on the left, lyrics on the right ---------- */
@@ -936,9 +911,6 @@ p {
         font-size: 21px;
     }
 
-    .lyrics-footer {
-        margin-top: 4px;
-    }
 }
 
 /* ---------- Library ---------- */

@@ -2,83 +2,105 @@
 
 @inject SpotifyAuthService SpotifyAuth
 @inject PlaybackController Player
+@inject LibraryService Library
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
-<div class="dashboard">
+<div class="app">
+    @* Blurred album art fills the screen behind everything. *@
+    @if (BackdropUrl is { } backdrop)
+    {
+        <div class="backdrop" style="background-image: url('@backdrop')" aria-hidden="true"></div>
+    }
 
-    <header class="dashboard-header">
-        <div class="brand">
-            <span class="spotify-icon">♫</span>
-            Spotify Remote
+    @if (_loading)
+    {
+        <div class="center-screen">
+            <p class="player-hint">Checking Spotify connection…</p>
         </div>
-
-        <span class="connection-status">
-            @(_isConnected ? "Connected" : "Disconnected")
-        </span>
-    </header>
-
-    <main class="dashboard-content">
-
-        @if (_loading)
-        {
-            <p>Checking Spotify connection...</p>
-        }
-        else if (_isConnected)
-        {
-            @* Side by side in landscape when there's a track (and so possibly lyrics). *@
-            <div class="player-layout @(Player.Playback?.Item is not null ? "with-lyrics" : null)">
+    }
+    else if (_isConnected)
+    {
+        @* The player stays mounted (hidden) while the library is open, so lyrics and
+           progress keep their state. *@
+        <div class="player @(LyricsOpen ? "lyrics-open" : null)" hidden="@_libraryOpen">
+            <div class="player-main">
                 <NowPlaying />
-                <LyricsPanel />
+
+                <div class="player-footer">
+                    <DeviceSelector Devices="Player.Devices"
+                                    SelectedDeviceId="@Player.SelectedDeviceId"
+                                    SelectedDeviceIdChanged="@((string? id) => Player.SelectDevice(id))"
+                                    IsLoading="Player.IsRefreshing"
+                                    IsPlaying="@(Player.Playback?.IsPlaying ?? false)"
+                                    OnRefresh="Player.RefreshAsync"
+                                    OnDisconnect="DisconnectAsync"
+                                    LastUpdated="Player.DevicesUpdatedAt" />
+
+                    <div class="footer-actions">
+                        <button class="icon-button"
+                                aria-label="Your library"
+                                @onclick="() => _libraryOpen = true">
+                            <Icon Name="library" Size="22" />
+                        </button>
+
+                        @if (HasTrack)
+                        {
+                            <button class="icon-button lyrics-toggle @(_showLyrics ? "on" : null)"
+                                    aria-pressed="@_showLyrics"
+                                    aria-label="@(_showLyrics ? "Hide lyrics" : "Show lyrics")"
+                                    @onclick="ToggleLyricsAsync">
+                                <Icon Name="lyrics" Size="22" />
+                            </button>
+                        }
+                    </div>
+                </div>
             </div>
 
-            <DeviceSelector Devices="Player.Devices"
-                            SelectedDeviceId="@Player.SelectedDeviceId"
-                            SelectedDeviceIdChanged="@((string? id) => Player.SelectDevice(id))"
-                            IsLoading="Player.IsRefreshing"
-                            OnRefresh="Player.RefreshAsync"
-                            LastUpdated="Player.DevicesUpdatedAt" />
+            @if (LyricsOpen)
+            {
+                <LyricsPanel />
+            }
+        </div>
 
-            <button class="secondary-button"
-                    @onclick="DisconnectAsync">
-                Disconnect Spotify
-            </button>
-        }
-        else
+        if (_libraryOpen)
         {
-            <h1>Spotify Dashboard</h1>
-
-            <section class="connection-card">
-                <h2>Connect your Spotify account</h2>
-
-                <p>
-                    Use this device as a dedicated remote
-                    for your Spotify Connect devices.
-                </p>
-
-                <button class="primary-button"
-                        @onclick="ConnectAsync">
-                    Connect to Spotify
-                </button>
-            </section>
+            <LibraryView OnClose="() => _libraryOpen = false" />
         }
+    }
+    else
+    {
+        <div class="center-screen connect">
+            <div class="connect-badge"><Icon Name="music" Size="40" /></div>
+            <h1>Spotify Remote</h1>
+            <p>Use this device as a dedicated remote for your Spotify Connect speakers, TVs and computers.</p>
+            <button class="pill-button primary large" @onclick="ConnectAsync">Connect to Spotify</button>
+        </div>
+    }
 
-        @if ((_error ?? Player.Error) is { Length: > 0 } message)
-        {
-            <p class="error-message">@message</p>
-        }
-
-    </main>
-
+    @if ((_error ?? Player.Error) is { Length: > 0 } message)
+    {
+        <p class="error-toast" role="alert">@message</p>
+    }
 </div>
 
 @code {
+    private const string LyricsPrefKey = "dashboard.showLyrics";
+
     private bool _loading = true;
     private bool _isConnected;
+    private bool _showLyrics = true;
+    private bool _libraryOpen;
     private string? _error;
 
     private IJSObjectReference? _visibilityModule;
     private DotNetObjectReference<Home>? _selfRef;
+
+    private bool HasTrack => Player.Playback?.Item is not null;
+
+    private bool LyricsOpen => _showLyrics && HasTrack;
+
+    private string? BackdropUrl => _isConnected ? NowPlaying.GetBackdropUrl(Player.Playback?.Item) : null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -111,6 +133,21 @@
         if (!firstRender)
             return;
 
+        // Restore the lyrics on/off choice.
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", LyricsPrefKey);
+            if (saved is not null && bool.TryParse(saved, out var show) && show != _showLyrics)
+            {
+                _showLyrics = show;
+                StateHasChanged();
+            }
+        }
+        catch (JSException)
+        {
+            // Storage unavailable; keep the default.
+        }
+
         // Pause polling while the screen is off or the app is in the background.
         try
         {
@@ -131,13 +168,28 @@
 
     private void OnPlayerStateChanged() => _ = InvokeAsync(StateHasChanged);
 
+    private async Task ToggleLyricsAsync()
+    {
+        _showLyrics = !_showLyrics;
+
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", LyricsPrefKey, _showLyrics.ToString());
+        }
+        catch (JSException)
+        {
+        }
+    }
+
     private void OnAuthenticationLost(string message)
     {
         // Token missing, expired beyond refresh, or revoked: clear it and ask to reconnect.
         _ = InvokeAsync(async () =>
         {
             await SpotifyAuth.LogoutAsync();
+            Library.Reset();
             _isConnected = false;
+            _libraryOpen = false;
             _error = message;
             StateHasChanged();
         });
@@ -158,9 +210,11 @@
     private async Task DisconnectAsync()
     {
         Player.Reset();
+        Library.Reset();
         await SpotifyAuth.LogoutAsync();
 
         _isConnected = false;
+        _libraryOpen = false;
         _error = null;
     }
 
@@ -179,7 +233,6 @@
             }
             catch (JSDisconnectedException)
             {
-                // Page is unloading.
             }
         }
 

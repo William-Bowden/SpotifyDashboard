@@ -14,6 +14,7 @@ builder.Services.AddScoped(sp => new SpotifyApiService(
     new HttpClient { BaseAddress = new Uri(SpotifyApiService.BaseAddress) },
     sp.GetRequiredService<SpotifyAuthService>()));
 builder.Services.AddScoped<PlaybackController>();
+builder.Services.AddScoped<LibraryService>();
 
 // Lyrics: swap the provider here to use a different source.
 builder.Services.AddScoped<ILyricsProvider>(_ => new LrcLibLyricsProvider(

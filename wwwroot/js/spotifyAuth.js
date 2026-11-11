@@ -157,7 +157,9 @@ function saveTokens(data) {
         accessToken: data.access_token,
         refreshToken: data.refresh_token ||
             existing?.refreshToken,
-        expiresAt: Date.now() + data.expires_in * 1000
+        expiresAt: Date.now() + data.expires_in * 1000,
+        // Space-separated scopes Spotify actually granted (also sent on refresh).
+        scope: data.scope || existing?.scope || null
     };
 
     localStorage.setItem(
@@ -220,6 +222,14 @@ export async function getAccessToken(clientId) {
     );
 
     return updated.accessToken;
+}
+
+export function getGrantedScopes() {
+    const stored = JSON.parse(
+        localStorage.getItem(TOKEN_KEY) || "null"
+    );
+
+    return stored?.scope ?? null;
 }
 
 export function logout() {

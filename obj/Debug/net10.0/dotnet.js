@@ -5,7 +5,7 @@ var e=!1;const t=async()=>WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,
   "mainAssemblyName": "SpotifyDashboard",
   "applicationEnvironment": "Development",
   "resources": {
-    "hash": "sha256-I/x254m8XKFpuKwkEI2nYcXnBsCo8BsllhXuZKySZyY=",
+    "hash": "sha256-0+bcK8tn8P0tlBhwpijzJMvbf7586SH3hc10LW0f+Ag=",
     "jsModuleNative": [
       {
         "name": "dotnet.native.puryxhmhq9.js"
@@ -1242,16 +1242,16 @@ var e=!1;const t=async()=>WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,
       },
       {
         "virtualPath": "SpotifyDashboard.wasm",
-        "name": "SpotifyDashboard.d19kaaunbf.wasm",
-        "hash": "sha256-wbzLbWJkAsk4F+QXLnPHdVdnhuhPHEswDbcqyFlvhbw=",
+        "name": "SpotifyDashboard.efjb0y6djv.wasm",
+        "hash": "sha256-5mA7E6cqFUjlJjaKsosnigL0vv/zXItm91j5HzdCZQg=",
         "cache": "force-cache"
       }
     ],
     "pdb": [
       {
         "virtualPath": "SpotifyDashboard.pdb",
-        "name": "SpotifyDashboard.58yku4ho8o.pdb",
-        "hash": "sha256-u5d3tISil5ai+Sd+Ubc2HtXxlBFWJBY7wYaZP0D+XaY=",
+        "name": "SpotifyDashboard.3trj1hhpz9.pdb",
+        "hash": "sha256-h+gn60hbpKgo8XUmxIQMRQNPBX1Nq8SsI1P6+IcvS88=",
         "cache": "force-cache"
       }
     ],

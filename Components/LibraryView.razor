@@ -1,0 +1,518 @@
+@* Full-screen "Your Library": playlists, saved albums and Liked Songs, with a
+   detail view for a playlist or album and a mini player along the bottom.
+   Tapping a track (or Play) starts it on the selected device only. *@
+
+@inject LibraryService Library
+@inject PlaybackController Player
+@inject SpotifyAuthService Auth
+@implements IDisposable
+
+<div class="library">
+    <header class="library-header">
+        @if (InDetail)
+        {
+            <button class="icon-button" aria-label="Back to library" @onclick="CloseDetail">
+                <Icon Name="chevron-left" Size="26" />
+            </button>
+            <span class="library-title" aria-hidden="true"></span>
+        }
+        else
+        {
+            <h1 class="library-title">Your Library</h1>
+        }
+
+        <button class="icon-button" aria-label="Close library" @onclick="OnClose">
+            <Icon Name="chevron-down" Size="26" />
+        </button>
+    </header>
+
+    @if (_needsReconnect is null)
+    {
+        <div class="library-panes"></div>
+    }
+    else if (_needsReconnect == true)
+    {
+        <div class="library-panes">
+            <div class="library-message">
+                <Icon Name="library" Size="40" />
+                <p class="library-message-title">Reconnect to see your library</p>
+                <p class="player-hint">Spotify needs to give this remote read access to your playlists and saved music.</p>
+                <button class="pill-button primary" @onclick="ReconnectAsync">Reconnect Spotify</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        if (!InDetail)
+        {
+            <div class="chips" role="tablist">
+                @foreach (var tab in Tabs)
+                {
+                    <button class="chip @(tab == _tab ? "on" : null)"
+                            role="tab"
+                            aria-selected="@(tab == _tab)"
+                            @onclick="() => SelectTabAsync(tab)">
+                        @TabLabel(tab)
+                    </button>
+                }
+            </div>
+        }
+
+        if (Player.SelectedDevice is null)
+        {
+            <p class="library-notice">Choose a device on the player screen to play from your library.</p>
+        }
+
+        @* The list stays rendered (hidden) behind a detail view so its scroll position survives. *@
+        <div class="library-panes">
+            <div class="library-pane @(InDetail ? "under" : null)" @key="_tab">
+                @switch (_tab)
+                {
+                    case LibraryTab.Playlists:
+                        @PlaylistsList
+                        break;
+                    case LibraryTab.Albums:
+                        @AlbumsList
+                        break;
+                    case LibraryTab.Liked:
+                        @LikedList
+                        break;
+                }
+            </div>
+
+            @if (_openPlaylist is not null)
+            {
+                <div class="library-pane" @key="_openPlaylist.Id">
+                    @PlaylistDetail(_openPlaylist)
+                </div>
+            }
+            else if (_openAlbum is not null)
+            {
+                <div class="library-pane" @key="_openAlbum.Uri">
+                    @AlbumDetail(_openAlbum)
+                </div>
+            }
+        </div>
+    }
+
+    @if (Player.Playback is { Item: { } nowPlaying } playback)
+    {
+        <div class="mini-player">
+            <button class="mini-info" @onclick="OnClose" aria-label="Back to player">
+                @(Cover(Artwork.Thumbnail(nowPlaying.Album?.Images), "small"))
+                <span class="lib-text">
+                    <span class="lib-title">@nowPlaying.Name</span>
+                    <span class="lib-sub">@nowPlaying.ArtistNames</span>
+                </span>
+            </button>
+
+            <button class="icon-button mini-play"
+                    disabled="@(!Player.CanControl)"
+                    aria-label="@(playback.IsPlaying ? "Pause" : "Play")"
+                    @onclick="Player.TogglePlayPauseAsync">
+                <Icon Name="@(playback.IsPlaying ? "pause" : "play")" Size="26" />
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private enum LibraryTab { Playlists, Albums, Liked }
+
+    private static readonly LibraryTab[] Tabs = { LibraryTab.Playlists, LibraryTab.Albums, LibraryTab.Liked };
+
+    // How many Liked Songs to queue when one is tapped (they have no playable context).
+    private const int LikedQueueSize = 100;
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private bool? _needsReconnect;
+    private LibraryTab _tab = LibraryTab.Playlists;
+    private SpotifyPlaylist? _openPlaylist;
+    private SpotifyAlbum? _openAlbum;
+
+    private bool InDetail => _openPlaylist is not null || _openAlbum is not null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Library.Changed += OnChanged;
+        Player.StateChanged += OnChanged;
+
+        try
+        {
+            _needsReconnect = !await Auth.HasScopesAsync(SpotifyAuthService.LibraryScopes);
+        }
+        catch (Exception)
+        {
+            _needsReconnect = false; // Let the API calls report any real problem.
+        }
+
+        if (_needsReconnect == false)
+            await EnsureCurrentLoadedAsync();
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private Task ReconnectAsync() => Auth.LoginAsync();
+
+    private Task SelectTabAsync(LibraryTab tab)
+    {
+        _tab = tab;
+        return EnsureCurrentLoadedAsync();
+    }
+
+    private Task EnsureCurrentLoadedAsync() => _tab switch
+    {
+        LibraryTab.Albums => Library.Albums.EnsureLoadedAsync(),
+        LibraryTab.Liked => Library.LikedSongs.EnsureLoadedAsync(),
+        _ => Library.Playlists.EnsureLoadedAsync()
+    };
+
+    private Task OpenPlaylistAsync(SpotifyPlaylist playlist)
+    {
+        _openPlaylist = playlist;
+        _openAlbum = null;
+        return Library.PlaylistTracks(playlist.Id).EnsureLoadedAsync();
+    }
+
+    private void OpenAlbum(SpotifyAlbum album)
+    {
+        _openAlbum = album;
+        _openPlaylist = null;
+    }
+
+    private void CloseDetail()
+    {
+        _openPlaylist = null;
+        _openAlbum = null;
+    }
+
+    // ---------- Playing ----------
+
+    private Task PlayContextAsync(string? contextUri, int? position = null) =>
+        string.IsNullOrEmpty(contextUri) ? Task.CompletedTask : Player.StartPlaybackAsync(contextUri, offsetPosition: position);
+
+    private Task PlayLikedAsync(int fromIndex)
+    {
+        var uris = Library.LikedSongs.Items
+            .Skip(fromIndex)
+            .Where(t => !t.IsLocal && !string.IsNullOrEmpty(t.Uri))
+            .Select(t => t.Uri!)
+            .Take(LikedQueueSize)
+            .ToList();
+
+        return uris.Count == 0 ? Task.CompletedTask : Player.StartPlaybackAsync(contextUri: null, uris: uris);
+    }
+
+    private bool IsPlayingContext(string? uri) =>
+        !string.IsNullOrEmpty(uri) && Player.Playback?.Context?.Uri == uri;
+
+    private bool IsCurrentTrack(SpotifyTrack? track) =>
+        track?.Id is { } id && Player.Playback?.Item?.Id == id;
+
+    // ---------- Lists ----------
+
+    private RenderFragment PlaylistsList => __builder =>
+    {
+        var list = Library.Playlists;
+
+        <div class="lib-section">
+            <ul class="lib-list grid">
+                <li>
+                    <button class="lib-row" @onclick="() => SelectTabAsync(LibraryTab.Liked)">
+                        <span class="lib-cover liked"><Icon Name="heart" Size="22" /></span>
+                        <span class="lib-text">
+                            <span class="lib-title">Liked Songs</span>
+                            <span class="lib-sub">Playlist</span>
+                        </span>
+                    </button>
+                </li>
+
+                @foreach (var playlist in list.Items)
+                {
+                    var playing = IsPlayingContext(playlist.Uri);
+
+                    <li @key="playlist.Id">
+                        <button class="lib-row @(playing ? "playing" : null)" @onclick="() => OpenPlaylistAsync(playlist)">
+                            @(Cover(Artwork.Thumbnail(playlist.Images), null))
+                            <span class="lib-text">
+                                <span class="lib-title">@playlist.Name</span>
+                                <span class="lib-sub">Playlist · @(playlist.Owner?.DisplayName ?? "Spotify")</span>
+                            </span>
+                            @if (playing)
+                            {
+                                @Eq
+                            }
+                        </button>
+                    </li>
+                }
+            </ul>
+
+            @(ListStatus(list.IsLoading, list.Error, list.IsLoaded && list.Items.Count == 0, "No playlists yet.", list.HasMore, list.LoadMoreAsync, list.ReloadAsync))
+        </div>
+    };
+
+    private RenderFragment AlbumsList => __builder =>
+    {
+        var list = Library.Albums;
+
+        <div class="lib-section">
+            <ul class="lib-list grid">
+                @foreach (var album in list.Items)
+                {
+                    var playing = IsPlayingContext(album.Uri);
+
+                    <li @key="album.Uri">
+                        <button class="lib-row @(playing ? "playing" : null)" @onclick="() => OpenAlbum(album)">
+                            @(Cover(Artwork.Thumbnail(album.Images), null))
+                            <span class="lib-text">
+                                <span class="lib-title">@album.Name</span>
+                                <span class="lib-sub">Album · @album.ArtistNames</span>
+                            </span>
+                            @if (playing)
+                            {
+                                @Eq
+                            }
+                        </button>
+                    </li>
+                }
+            </ul>
+
+            @(ListStatus(list.IsLoading, list.Error, list.IsLoaded && list.Items.Count == 0, "No saved albums yet.", list.HasMore, list.LoadMoreAsync, list.ReloadAsync))
+        </div>
+    };
+
+    private RenderFragment LikedList => __builder =>
+    {
+        var list = Library.LikedSongs;
+
+        <div class="lib-section">
+            <div class="detail-hero">
+                <span class="lib-cover hero liked"><Icon Name="heart" Size="48" /></span>
+                <div class="detail-info">
+                    <h2 class="detail-title">Liked Songs</h2>
+                    @if (list.IsLoaded)
+                    {
+                        <p class="lib-sub">@SongCount(list.Total)</p>
+                    }
+                    <button class="play-button detail-play"
+                            disabled="@(!Player.CanStartPlayback || list.Items.Count == 0)"
+                            aria-label="Play Liked Songs"
+                            @onclick="() => PlayLikedAsync(0)">
+                        <Icon Name="play" Size="26" />
+                    </button>
+                </div>
+            </div>
+
+            <ul class="lib-list">
+                @for (var i = 0; i < list.Items.Count; i++)
+                {
+                    var index = i;
+                    @(TrackRow(list.Items[i], index, showCover: true, () => PlayLikedAsync(index)))
+                }
+            </ul>
+
+            @(ListStatus(list.IsLoading, list.Error, list.IsLoaded && list.Items.Count == 0, "No liked songs yet.", list.HasMore, list.LoadMoreAsync, list.ReloadAsync))
+        </div>
+    };
+
+    // ---------- Detail views ----------
+
+    private RenderFragment PlaylistDetail(SpotifyPlaylist playlist) => __builder =>
+    {
+        var tracks = Library.PlaylistTracks(playlist.Id);
+
+        <div class="lib-section">
+            <div class="detail-hero">
+                @(Cover(Artwork.Largest(playlist.Images), "hero"))
+                <div class="detail-info">
+                    <h2 class="detail-title">@playlist.Name</h2>
+                    <p class="lib-sub">
+                        @(playlist.Owner?.DisplayName ?? "Spotify")
+                        @if (playlist.TrackCount is int count)
+                        {
+                            <span> · @SongCount(count)</span>
+                        }
+                    </p>
+                    <button class="play-button detail-play"
+                            disabled="@(!Player.CanStartPlayback)"
+                            aria-label="Play @playlist.Name"
+                            @onclick="() => PlayContextAsync(playlist.Uri)">
+                        <Icon Name="play" Size="26" />
+                    </button>
+                </div>
+            </div>
+
+            @if (tracks.IsForbidden)
+            {
+                <p class="library-message-inline">
+                    Spotify only shares track lists for playlists you own or collaborate on.
+                    You can still play this one.
+                </p>
+            }
+            else
+            {
+                <ul class="lib-list">
+                    @for (var i = 0; i < tracks.Items.Count; i++)
+                    {
+                        var position = i;
+                        @(TrackRow(tracks.Items[i], position, showCover: true, () => PlayContextAsync(playlist.Uri, position)))
+                    }
+                </ul>
+
+                @(ListStatus(tracks.IsLoading, tracks.Error, tracks.IsLoaded && tracks.Items.Count == 0, "This playlist is empty.", tracks.HasMore, tracks.LoadMoreAsync, tracks.ReloadAsync))
+            }
+        </div>
+    };
+
+    private RenderFragment AlbumDetail(SpotifyAlbum album) => __builder =>
+    {
+        var tracks = album.Tracks?.Items ?? new List<SpotifyTrack>();
+
+        <div class="lib-section">
+            <div class="detail-hero">
+                @(Cover(Artwork.Largest(album.Images), "hero"))
+                <div class="detail-info">
+                    <h2 class="detail-title">@album.Name</h2>
+                    <p class="lib-sub">@album.ArtistNames · @SongCount(album.TotalTracks)</p>
+                    <button class="play-button detail-play"
+                            disabled="@(!Player.CanStartPlayback)"
+                            aria-label="Play @album.Name"
+                            @onclick="() => PlayContextAsync(album.Uri)">
+                        <Icon Name="play" Size="26" />
+                    </button>
+                </div>
+            </div>
+
+            <ul class="lib-list">
+                @for (var i = 0; i < tracks.Count; i++)
+                {
+                    var position = i;
+                    @(TrackRow(tracks[i], position, showCover: false, () => PlayContextAsync(album.Uri, position)))
+                }
+            </ul>
+
+            @if (album.TotalTracks > tracks.Count)
+            {
+                <p class="library-message-inline">
+                    Showing the first @tracks.Count of @album.TotalTracks tracks. Play the album to hear them all.
+                </p>
+            }
+        </div>
+    };
+
+    // ---------- Pieces ----------
+
+    private RenderFragment TrackRow(SpotifyTrack? track, int index, bool showCover, Func<Task> play) => __builder =>
+    {
+        var current = IsCurrentTrack(track);
+
+        <li @key="index">
+            @if (track is null)
+            {
+                <div class="track-row unavailable">
+                    @if (showCover)
+                    {
+                        @(Cover(null, "small"))
+                    }
+                    else
+                    {
+                        <span class="track-number">@(index + 1)</span>
+                    }
+                    <span class="lib-text">
+                        <span class="lib-title">Unavailable</span>
+                    </span>
+                </div>
+            }
+            else
+            {
+                <button class="track-row @(current ? "current" : null)" @onclick="play">
+                    @if (showCover)
+                    {
+                        @(Cover(Artwork.Thumbnail(track.Album?.Images), "small"))
+                    }
+                    else if (current)
+                    {
+                        <span class="track-number">@Eq</span>
+                    }
+                    else
+                    {
+                        <span class="track-number">@(index + 1)</span>
+                    }
+                    <span class="lib-text">
+                        <span class="lib-title">@track.Name</span>
+                        <span class="lib-sub">@track.ArtistNames</span>
+                    </span>
+                    <span class="track-duration">@FormatDuration(track.DurationMs)</span>
+                </button>
+            }
+        </li>
+    };
+
+    private RenderFragment Cover(string? url, string? size) => __builder =>
+    {
+        <span class="lib-cover @size">
+            @if (url is not null)
+            {
+                <img src="@url" alt="" loading="lazy" />
+            }
+            else
+            {
+                <Icon Name="music" Size="22" />
+            }
+        </span>
+    };
+
+    private RenderFragment Eq => __builder =>
+    {
+        <span class="eq @(Player.Playback?.IsPlaying == true ? null : "paused")" aria-hidden="true"><i></i><i></i><i></i></span>
+    };
+
+    private RenderFragment ListStatus(
+        bool loading, string? error, bool empty, string emptyText,
+        bool hasMore, Func<Task> loadMore, Func<Task> retry) => __builder =>
+    {
+        if (error is not null)
+        {
+            <div class="list-status">
+                <p>@error</p>
+                <button class="pill-button" @onclick="retry">Try again</button>
+            </div>
+        }
+        else if (loading)
+        {
+            <p class="list-status">Loading…</p>
+        }
+        else if (empty)
+        {
+            <p class="list-status">@emptyText</p>
+        }
+        else if (hasMore)
+        {
+            <div class="list-status">
+                <button class="pill-button" @onclick="loadMore">Load more</button>
+            </div>
+        }
+    };
+
+    private static string TabLabel(LibraryTab tab) => tab switch
+    {
+        LibraryTab.Albums => "Albums",
+        LibraryTab.Liked => "Liked Songs",
+        _ => "Playlists"
+    };
+
+    private static string SongCount(int count) => count == 1 ? "1 song" : $"{count:N0} songs";
+
+    private static string FormatDuration(int ms)
+    {
+        var t = TimeSpan.FromMilliseconds(Math.Max(ms, 0));
+        return t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
+    }
+
+    public void Dispose()
+    {
+        Library.Changed -= OnChanged;
+        Player.StateChanged -= OnChanged;
+    }
+}

@@ -37,6 +37,14 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xEZXZpY2VTZWxlY3Rvci5yYXpvcg==
 build_metadata.AdditionalFiles.CssScope = 
 
+[N:/SpotifyDashboard/Components/Icon.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xJY29uLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[N:/SpotifyDashboard/Components/LibraryView.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xMaWJyYXJ5Vmlldy5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
 [N:/SpotifyDashboard/Components/LyricsPanel.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xMeXJpY3NQYW5lbC5yYXpvcg==
 build_metadata.AdditionalFiles.CssScope = 

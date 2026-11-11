@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using SpotifyDashboard.Models;
 
 namespace SpotifyDashboard.Services;
@@ -92,6 +93,53 @@ public sealed class SpotifyApiService
         }
     }
 
+    // ---------- Library (read-only) ----------
+    // Each takes the "next" URL from the previous page, or null for the first page.
+
+    public Task<SpotifyPage<SpotifyPlaylist>> GetMyPlaylistsAsync(string? next, CancellationToken cancellationToken = default) =>
+        GetPageAsync<SpotifyPlaylist>(next ?? "me/playlists?limit=50", cancellationToken);
+
+    /// <summary>
+    /// Items of a playlist. Spotify only returns these for playlists the user owns or
+    /// collaborates on; others answer 403 (Forbidden).
+    /// </summary>
+    public Task<SpotifyPage<SpotifyPlaylistItem>> GetPlaylistItemsAsync(
+        string playlistId, string? next, CancellationToken cancellationToken = default) =>
+        GetPageAsync<SpotifyPlaylistItem>(
+            next ?? $"playlists/{Uri.EscapeDataString(playlistId)}/items?limit=100&additional_types=track,episode",
+            cancellationToken);
+
+    public Task<SpotifyPage<SpotifySavedTrack>> GetSavedTracksAsync(string? next, CancellationToken cancellationToken = default) =>
+        GetPageAsync<SpotifySavedTrack>(next ?? "me/tracks?limit=50", cancellationToken);
+
+    public Task<SpotifyPage<SpotifySavedAlbum>> GetSavedAlbumsAsync(string? next, CancellationToken cancellationToken = default) =>
+        GetPageAsync<SpotifySavedAlbum>(next ?? "me/albums?limit=20", cancellationToken);
+
+    private async Task<SpotifyPage<T>> GetPageAsync<T>(string uri, CancellationToken cancellationToken)
+    {
+        // "next" links are absolute; never send the token anywhere but the Web API.
+        if (System.Uri.TryCreate(uri, UriKind.Absolute, out var absolute)
+            && !absolute.AbsoluteUri.StartsWith(BaseAddress, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SpotifyApiException(SpotifyApiErrorKind.Other, "Spotify returned an unexpected paging link.");
+        }
+
+        using var response = await SendAsync(HttpMethod.Get, uri, cancellationToken);
+
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<SpotifyPage<T>>(cancellationToken) ?? new SpotifyPage<T>();
+        }
+        catch (JsonException ex)
+        {
+            throw new SpotifyApiException(
+                SpotifyApiErrorKind.Other,
+                "Spotify returned an unexpected library format.",
+                response.StatusCode,
+                innerException: ex);
+        }
+    }
+
     // ---------- Playback commands ----------
     // Every command takes the target device ID explicitly and sends it as device_id,
     // so a command can never fall through to whatever Spotify considers "active".
@@ -106,6 +154,34 @@ public sealed class SpotifyApiService
 
         var body = JsonContent.Create(new TransferPlaybackRequest(new[] { deviceId }, play));
         using var _ = await SendAsync(HttpMethod.Put, "me/player", cancellationToken, body);
+    }
+
+    /// <summary>
+    /// Starts something new on the device: a context (playlist/album URI, optionally at a
+    /// position within it) or an explicit list of track URIs.
+    /// </summary>
+    public async Task StartPlaybackAsync(
+        string deviceId,
+        string? contextUri,
+        IReadOnlyList<string>? uris,
+        int? offsetPosition,
+        CancellationToken cancellationToken = default)
+    {
+        RequireDeviceId(deviceId);
+
+        if (string.IsNullOrEmpty(contextUri) && (uris is null || uris.Count == 0))
+            throw new ArgumentException("Nothing to play.", nameof(uris));
+
+        var body = JsonContent.Create(new StartPlaybackRequest(
+            string.IsNullOrEmpty(contextUri) ? null : contextUri,
+            uris is { Count: > 0 } ? uris.ToArray() : null,
+            offsetPosition is int position ? new PlaybackOffset(Math.Max(position, 0)) : null));
+
+        using var _ = await SendAsync(
+            HttpMethod.Put,
+            $"me/player/play?device_id={Uri.EscapeDataString(deviceId)}",
+            cancellationToken,
+            body);
     }
 
     /// <summary>Resumes the current playback context on the device.</summary>
@@ -154,6 +230,13 @@ public sealed class SpotifyApiService
         if (string.IsNullOrWhiteSpace(deviceId))
             throw new ArgumentException("A target device ID is required for playback commands.", nameof(deviceId));
     }
+
+    private sealed record StartPlaybackRequest(
+        [property: JsonPropertyName("context_uri"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ContextUri,
+        [property: JsonPropertyName("uris"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? Uris,
+        [property: JsonPropertyName("offset"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PlaybackOffset? Offset);
+
+    private sealed record PlaybackOffset([property: JsonPropertyName("position")] int Position);
 
     private sealed record TransferPlaybackRequest(
         [property: System.Text.Json.Serialization.JsonPropertyName("device_ids")] string[] DeviceIds,

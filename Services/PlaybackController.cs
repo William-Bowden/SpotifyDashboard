@@ -415,6 +415,31 @@ public sealed class PlaybackController : IDisposable
             refreshDevices: true);
     }
 
+    /// <summary>
+    /// True when something new (a playlist, album or tracks) can be started on the selected device.
+    /// </summary>
+    public bool CanStartPlayback => SelectedDevice is not null && IsRunning && !IsCommandBusy;
+
+    /// <summary>
+    /// Starts a context (playlist/album URI, optionally at <paramref name="offsetPosition"/>) or a
+    /// list of track URIs on the selected device. Always triggered by an explicit tap on an item,
+    /// so unlike the transport controls this may move playback to the selected device. It never
+    /// targets anything but the selected device.
+    /// </summary>
+    public Task StartPlaybackAsync(string? contextUri, IReadOnlyList<string>? uris = null, int? offsetPosition = null)
+    {
+        if (!CanStartPlayback || SelectedDevice?.Id is not { } deviceId)
+            return Task.CompletedTask;
+
+        var moving = NeedsTransfer;
+
+        return ExecuteAsync(
+            ct => _api.StartPlaybackAsync(deviceId, contextUri, uris, offsetPosition, ct),
+            optimistic: null,
+            moving ? SettleAfterTransfer : SettleAfterSkip,
+            refreshDevices: moving);
+    }
+
     public Task TogglePlayPauseAsync()
     {
         var wasPlaying = Playback?.IsPlaying ?? false;

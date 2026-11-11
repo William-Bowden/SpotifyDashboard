@@ -1,63 +1,52 @@
-@* Now-playing card: artwork, track info, output device, progress and controls.
+@* Now playing: artwork, track info, progress and controls. Laid out by CSS grid
+   (see .now-playing in dashboard.css) so the same markup works stacked, compact
+   (when lyrics are open) and side by side in landscape.
    Reads everything from PlaybackController; a 1-second UI tick advances the
    progress bar locally between polls (no extra API calls). *@
 
 @inject PlaybackController Player
 @implements IDisposable
 
-<section class="now-playing">
-
-    @if (Player.Playback is { } playback)
-    {
-        <div class="np-device">
-            <span class="np-device-dot @(playback.IsPlaying ? "playing" : null)" aria-hidden="true"></span>
-            @(playback.IsPlaying ? "Playing on" : "Paused on")
-            <strong>@(playback.Device?.Name ?? "an unknown device")</strong>
+@if (Player.Playback is { } playback)
+{
+    <section class="now-playing">
+        <div class="np-art">
+            @if (GetArtworkUrl(playback.Item) is { } artUrl)
+            {
+                <img src="@artUrl" alt="Album artwork for @playback.Item!.Album!.Name" />
+            }
+            else
+            {
+                <div class="np-art-placeholder"><Icon Name="music" Size="56" /></div>
+            }
         </div>
 
-        <div class="np-body">
-            <div class="np-art">
-                @if (GetArtworkUrl(playback.Item) is { } artUrl)
-                {
-                    <img src="@artUrl" alt="Album artwork for @playback.Item!.Album!.Name" />
-                }
-                else
-                {
-                    <div class="np-art-placeholder" aria-hidden="true">♫</div>
-                }
-            </div>
-
-            <div class="np-main">
-                <div class="np-meta">
-                    @if (playback.Item is { } track)
-                    {
-                        <div class="np-title" title="@track.Name">@track.Name</div>
-                        <div class="np-artist" title="@track.ArtistNames">@track.ArtistNames</div>
-                        @if (track.Album is { } album && !string.IsNullOrEmpty(album.Name))
-                        {
-                            <div class="np-album" title="@album.Name">@album.Name</div>
-                        }
-                    }
-                    else
-                    {
-                        <div class="np-title">@DescribeNonTrack(playback.CurrentlyPlayingType)</div>
-                    }
-                </div>
-
-                @ControlsOrTransfer
-            </div>
+        <div class="np-meta">
+            @if (playback.Item is { } track)
+            {
+                <div class="np-title" title="@track.Name">@track.Name</div>
+                <div class="np-artist" title="@track.ArtistNames">@track.ArtistNames</div>
+            }
+            else
+            {
+                <div class="np-title">@DescribeNonTrack(playback.CurrentlyPlayingType)</div>
+            }
         </div>
-    }
-    else
-    {
-        <div class="np-idle">
-            <div class="np-art-placeholder small" aria-hidden="true">♫</div>
-            <p class="player-hint">Nothing is playing on any device right now.</p>
+
+        <div class="np-controls">
             @ControlsOrTransfer
         </div>
-    }
-
-</section>
+    </section>
+}
+else
+{
+    <section class="np-idle">
+        <div class="np-idle-icon"><Icon Name="music" Size="40" /></div>
+        <p class="np-idle-title">Nothing playing</p>
+        <p class="player-hint">Start something in Spotify on any of your devices.</p>
+        @ControlsOrTransfer
+    </section>
+}
 
 @code {
     private readonly CancellationTokenSource _cts = new();
@@ -66,18 +55,31 @@
     {
         if (Player.SelectedDevice is not { } selected)
         {
-            <p class="player-hint">Select a device below to control playback.</p>
+            @* Selecting is display-only; it never sends anything to Spotify. *@
+            if (Player.ActiveDevice is { IsControllable: true } active)
+            {
+                <div class="np-notice">
+                    <p class="player-hint">Playing on <strong>@active.Name</strong></p>
+                    <button class="pill-button" @onclick="() => Player.SelectDevice(active.Id)">
+                        Control @active.Name
+                    </button>
+                </div>
+            }
+            else if (Player.Playback is not null)
+            {
+                <p class="player-hint">Choose a device below to control playback.</p>
+            }
         }
         else if (Player.NeedsTransfer)
         {
             @* Only an explicit tap here moves playback to another device. *@
-            <div class="np-transfer">
+            <div class="np-notice">
                 @if (Player.ActiveDevice is { } active)
                 {
-                    <p class="player-hint">Selected: <strong>@selected.Name</strong> (playback is on @active.Name)</p>
+                    <p class="player-hint">Playing on <strong>@active.Name</strong></p>
                 }
 
-                <button class="primary-button"
+                <button class="pill-button primary"
                         disabled="@Player.IsCommandBusy"
                         @onclick="Player.TransferToSelectedAsync">
                     @(Player.ActiveDevice is null ? $"Start playback on {selected.Name}" : $"Move playback to {selected.Name}")
@@ -135,10 +137,18 @@
     }
 
     /// <summary>Spotify lists images largest first; the largest (~640px) stays sharp on high-DPI phones.</summary>
-    private static string? GetArtworkUrl(SpotifyTrack? track) =>
+    internal static string? GetArtworkUrl(SpotifyTrack? track) =>
         track?.Album?.Images
             .OrderByDescending(i => i.Width ?? 0)
             .FirstOrDefault(i => !string.IsNullOrEmpty(i.Url))
+            ?.Url;
+
+    /// <summary>Smallest image, for the blurred backdrop (cheap to decode; detail is blurred away).</summary>
+    internal static string? GetBackdropUrl(SpotifyTrack? track) =>
+        track?.Album?.Images
+            .Where(i => !string.IsNullOrEmpty(i.Url))
+            .OrderBy(i => i.Width ?? int.MaxValue)
+            .FirstOrDefault()
             ?.Url;
 
     private static string DescribeNonTrack(string? type) => type switch

@@ -1,13 +1,12 @@
-@* Previous / play-pause / next buttons plus a seek bar.
+@* Seek bar plus previous / play-pause / next.
    Purely presentational: the parent decides which device commands go to. *@
 
 <div class="playback-controls">
 
-    <div class="seek-row">
-        <span class="time">@FormatTime(DisplayPositionMs)</span>
-
+    <div class="seek">
         <input type="range"
-               class="seek-bar"
+               class="slider seek-bar"
+               style="--pct: @Percent(DisplayPositionMs, DurationMs)"
                min="0"
                max="@Math.Max(DurationMs, 1)"
                step="1000"
@@ -17,29 +16,32 @@
                @oninput="OnSeekInput"
                @onchange="OnSeekCommitAsync" />
 
-        <span class="time">@FormatTime(DurationMs)</span>
+        <div class="seek-times">
+            <span>@FormatTime(DisplayPositionMs)</span>
+            <span>@FormatTime(DurationMs)</span>
+        </div>
     </div>
 
-    <div class="button-row">
-        <button class="control-button"
+    <div class="transport">
+        <button class="icon-button transport-button"
                 disabled="@(Disabled || !CanSkipPrevious)"
                 aria-label="Previous track"
                 @onclick="OnPrevious">
-            ⏮
+            <Icon Name="previous" Size="30" />
         </button>
 
-        <button class="control-button play-button"
+        <button class="play-button"
                 disabled="@(Disabled || (IsPlaying ? !CanPause : !CanResume))"
                 aria-label="@(IsPlaying ? "Pause" : "Play")"
                 @onclick="OnPlayPause">
-            @(IsPlaying ? "⏸" : "▶")
+            <Icon Name="@(IsPlaying ? "pause" : "play")" Size="30" />
         </button>
 
-        <button class="control-button"
+        <button class="icon-button transport-button"
                 disabled="@(Disabled || !CanSkipNext)"
                 aria-label="Next track"
                 @onclick="OnNext">
-            ⏭
+            <Icon Name="next" Size="30" />
         </button>
     </div>
 </div>
@@ -83,6 +85,10 @@
 
         _dragPositionMs = null;
     }
+
+    /// <summary>CSS percentage for the filled part of a slider track.</summary>
+    internal static string Percent(int value, int max) =>
+        max <= 0 ? "0%" : FormattableString.Invariant($"{Math.Clamp(value * 100.0 / max, 0, 100):0.##}%");
 
     private static string FormatTime(int ms)
     {

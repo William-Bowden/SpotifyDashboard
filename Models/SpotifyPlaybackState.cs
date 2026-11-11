@@ -39,6 +39,10 @@ public sealed class SpotifyPlaybackState
     [JsonPropertyName("item")]
     public SpotifyTrack? Item { get; set; }
 
+    /// <summary>What's playing from (playlist, album, ...); null for e.g. a plain track list.</summary>
+    [JsonPropertyName("context")]
+    public SpotifyContext? Context { get; set; }
+
     [JsonPropertyName("actions")]
     public SpotifyPlaybackActions? Actions { get; set; }
 }

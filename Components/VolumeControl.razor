@@ -2,22 +2,22 @@
    releases the slider (onchange), not on every pixel of movement. *@
 
 <div class="volume-control">
-    <span class="volume-icon" aria-hidden="true">@(DisplayVolume == 0 ? "🔇" : "🔊")</span>
+    <Icon Name="@(Supported && DisplayVolume == 0 ? "volume-mute" : "volume")" Size="20" Class="volume-icon" />
 
     @if (Supported && Volume is not null)
     {
         <input type="range"
-               class="volume-slider"
+               class="slider volume-slider"
+               style="--pct: @(DisplayVolume)%"
                min="0"
                max="100"
                step="1"
                value="@DisplayVolume"
                disabled="@Disabled"
                aria-label="Volume"
+               aria-valuetext="@($"{DisplayVolume}%")"
                @oninput="OnVolumeInput"
                @onchange="OnVolumeCommitAsync" />
-
-        <span class="volume-value">@DisplayVolume%</span>
     }
     else
     {

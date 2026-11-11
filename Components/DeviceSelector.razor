@@ -1,117 +1,186 @@
-@* Lists Spotify Connect devices. Selection is informational only:
-   choosing a device here does NOT transfer playback. *@
+@* Compact device picker, modelled on the Spotify mobile app: a pill showing the
+   target device that opens a bottom sheet listing every Spotify Connect device.
+   Selection is informational only: choosing a device here does NOT transfer
+   playback (NowPlaying offers an explicit "Move playback" button for that). *@
 
-<section class="device-selector">
-    <div class="device-selector-header">
-        <h2>Devices</h2>
-
-        <button class="refresh-button"
-                @onclick="OnRefresh"
-                disabled="@IsLoading"
-                aria-label="Refresh devices">
-            @(IsLoading ? "Refreshing…" : "↻ Refresh")
-        </button>
-    </div>
-
-    @if (Devices is null)
+<button class="device-pill @(IsLive ? "live" : null)"
+        aria-haspopup="dialog"
+        aria-expanded="@_open"
+        @onclick="Open">
+    @if (IsLive)
     {
-        <p class="device-hint">Loading devices…</p>
-    }
-    else if (Devices.Count == 0)
-    {
-        <div class="device-empty">
-            <p>No Spotify Connect devices found.</p>
-            <p class="device-hint">
-                Open Spotify on a speaker, computer, or TV, then tap Refresh.
-                Devices can take a few seconds to appear.
-            </p>
-        </div>
+        <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
     }
     else
     {
-        <ul class="device-list">
-            @foreach (var device in Devices)
-            {
-                var isSelected = device.IsControllable && device.Id == SelectedDeviceId;
-
-                <li>
-                    <button class="device-item @(isSelected ? "selected" : null) @(device.IsActive ? "active" : null)"
-                            disabled="@(!device.IsControllable)"
-                            aria-pressed="@isSelected"
-                            @onclick="() => SelectAsync(device)">
-
-                        <span class="device-icon" aria-hidden="true">@GetIcon(device.Type)</span>
-
-                        <span class="device-info">
-                            <span class="device-name">@device.Name</span>
-                            <span class="device-meta">
-                                @device.Type
-                                @if (device.IsPrivateSession)
-                                {
-                                    <span> · Private session</span>
-                                }
-                                @if (device.IsRestricted)
-                                {
-                                    <span> · Can't be controlled</span>
-                                }
-                                else if (string.IsNullOrEmpty(device.Id))
-                                {
-                                    <span> · Unavailable</span>
-                                }
-                            </span>
-                        </span>
-
-                        <span class="device-status">
-                            @if (device.IsActive)
-                            {
-                                <span class="active-badge">● Playing here</span>
-                            }
-                            @if (device.VolumePercent is int volume)
-                            {
-                                <span class="device-volume">🔊 @volume%</span>
-                            }
-                        </span>
-                    </button>
-                </li>
-            }
-        </ul>
-
-        @if (LastUpdated is DateTime updated)
-        {
-            <p class="device-hint">
-                Updated @updated.ToLocalTime().ToString("t").
-                Spotify's device list can lag by a few seconds.
-            </p>
-        }
+        <Icon Name="@Icon.ForDeviceType(Selected?.Type)" Size="18" />
     }
-</section>
+    <span class="device-pill-label">@(Selected?.Name ?? "Choose a device")</span>
+    <Icon Name="chevron-down" Size="16" Class="device-pill-chevron" />
+</button>
+
+@if (_open)
+{
+    <div class="sheet-backdrop" @onclick="Close"></div>
+
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="device-sheet-title">
+        <div class="sheet-grabber" @onclick="Close" aria-hidden="true"></div>
+
+        <div class="sheet-header">
+            <h2 id="device-sheet-title">Connect to a device</h2>
+
+            <button class="icon-button @(IsLoading ? "spinning" : null)"
+                    @onclick="OnRefresh"
+                    disabled="@IsLoading"
+                    aria-label="Refresh devices">
+                <Icon Name="refresh" Size="22" />
+            </button>
+
+            <button class="icon-button" @onclick="Close" aria-label="Close">
+                <Icon Name="close" Size="22" />
+            </button>
+        </div>
+
+        <div class="sheet-body">
+            @if (Devices is null)
+            {
+                <p class="sheet-hint">Loading devices…</p>
+            }
+            else if (Devices.Count == 0)
+            {
+                <p class="sheet-empty">No Spotify Connect devices found</p>
+                <p class="sheet-hint">
+                    Open Spotify on a speaker, computer or TV, then refresh.
+                    Devices can take a few seconds to appear.
+                </p>
+            }
+            else
+            {
+                <ul class="device-list">
+                    @foreach (var device in Devices)
+                    {
+                        var isSelected = device.IsControllable && device.Id == SelectedDeviceId;
+
+                        <li @key="device.Id ?? device.Name">
+                            <button class="device-row @(isSelected ? "selected" : null) @(device.IsActive ? "active" : null)"
+                                    disabled="@(!device.IsControllable)"
+                                    aria-pressed="@isSelected"
+                                    @onclick="() => SelectAsync(device)">
+
+                                <span class="device-row-icon">
+                                    <Icon Name="@Icon.ForDeviceType(device.Type)" Size="26" />
+                                </span>
+
+                                <span class="device-row-info">
+                                    <span class="device-row-name">@device.Name</span>
+                                    <span class="device-row-meta">@DescribeDevice(device)</span>
+                                </span>
+
+                                @if (device.IsActive)
+                                {
+                                    <span class="eq @(IsPlaying ? null : "paused")" aria-hidden="true"><i></i><i></i><i></i></span>
+                                }
+                                else if (isSelected)
+                                {
+                                    <Icon Name="check" Size="20" Class="device-row-check" />
+                                }
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <div class="sheet-footer">
+            <span class="sheet-hint">
+                @if (LastUpdated is DateTime updated)
+                {
+                    @($"Updated {updated.ToLocalTime():t}")
+                }
+            </span>
+
+            @if (OnDisconnect.HasDelegate)
+            {
+                <button class="text-button" @onclick="DisconnectAsync">
+                    <Icon Name="logout" Size="16" />
+                    Disconnect Spotify
+                </button>
+            }
+        </div>
+    </div>
+}
 
 @code {
     [Parameter] public IReadOnlyList<SpotifyDevice>? Devices { get; set; }
     [Parameter] public string? SelectedDeviceId { get; set; }
     [Parameter] public EventCallback<string?> SelectedDeviceIdChanged { get; set; }
     [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool IsPlaying { get; set; }
     [Parameter] public EventCallback OnRefresh { get; set; }
+    [Parameter] public EventCallback OnDisconnect { get; set; }
     [Parameter] public DateTime? LastUpdated { get; set; }
 
-    private Task SelectAsync(SpotifyDevice device)
-    {
-        if (!device.IsControllable)
-            return Task.CompletedTask;
+    private bool _open;
 
-        return SelectedDeviceIdChanged.InvokeAsync(device.Id);
+    private SpotifyDevice? Selected =>
+        Devices?.FirstOrDefault(d => d.IsControllable && d.Id == SelectedDeviceId);
+
+    /// <summary>The selected device is the one playing right now (Spotify shows this in green).</summary>
+    private bool IsLive => IsPlaying && Selected is { IsActive: true };
+
+    private async Task Open()
+    {
+        _open = true;
+
+        // The list can be a few seconds stale; refresh it whenever the sheet opens.
+        if (!IsLoading)
+            await OnRefresh.InvokeAsync();
     }
 
-    private static string GetIcon(string type) => type.ToLowerInvariant() switch
+    private void Close() => _open = false;
+
+    private async Task SelectAsync(SpotifyDevice device)
     {
-        "computer" => "💻",
-        "smartphone" => "📱",
-        "tablet" => "📱",
-        "speaker" => "🔈",
-        "tv" => "📺",
-        "castvideo" or "castaudio" => "📡",
-        "automobile" => "🚗",
-        "gameconsole" => "🎮",
-        _ => "🎵"
+        if (!device.IsControllable)
+            return;
+
+        _open = false;
+        await SelectedDeviceIdChanged.InvokeAsync(device.Id);
+    }
+
+    private async Task DisconnectAsync()
+    {
+        _open = false;
+        await OnDisconnect.InvokeAsync();
+    }
+
+    private string DescribeDevice(SpotifyDevice device)
+    {
+        var parts = new List<string>(3);
+
+        if (device.IsActive)
+            parts.Add(IsPlaying ? "Playing" : "Paused");
+        else
+            parts.Add(FriendlyType(device.Type));
+
+        if (device.IsPrivateSession)
+            parts.Add("Private session");
+
+        if (device.IsRestricted)
+            parts.Add("Can't be controlled");
+        else if (string.IsNullOrEmpty(device.Id))
+            parts.Add("Unavailable");
+
+        return string.Join(" · ", parts);
+    }
+
+    private static string FriendlyType(string type) => type.ToLowerInvariant() switch
+    {
+        "castvideo" or "castaudio" => "Cast device",
+        "automobile" => "Car",
+        "gameconsole" => "Game console",
+        "tv" => "TV",
+        "" => "Device",
+        _ => type
     };
 }

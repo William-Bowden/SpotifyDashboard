@@ -3,13 +3,24 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SpotifyDashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Spotify Remote</title>
     <base href="/" />
+
+    <!-- Installable app -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#121212" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Remote" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
     <link rel="preload" id="webassembly" />
     <link rel="stylesheet" href="lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="css/app.css" />
-    <link rel="icon" type="image/png" href="favicon.png" />
     <link href="SpotifyDashboard.styles.css" rel="stylesheet" />
     <link href="css/dashboard.css" rel="stylesheet" />
     <script type="importmap"></script>
@@ -30,6 +41,15 @@
         <span class="dismiss">🗙</span>
     </div>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+    <script>
+        // Service worker: installability + offline start. Skipped on localhost so it
+        // never gets in the way of `dotnet watch` during development.
+        if ("serviceWorker" in navigator && !["localhost", "127.0.0.1"].includes(location.hostname)) {
+            window.addEventListener("load", () => {
+                navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }).catch(() => { });
+            });
+        }
+    </script>
 </body>
 
 </html>

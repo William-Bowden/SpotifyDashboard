@@ -1343,3 +1343,27 @@ p {
 .auth-message a {
     color: var(--green);
 }
+
+/* ---------- Startup spinner (shown before Blazor loads) ---------- */
+
+.loading-progress {
+    inset: 38vh 0 auto 0;
+    width: 4.5rem;
+    height: 4.5rem;
+}
+
+.loading-progress circle {
+    stroke: rgba(255, 255, 255, 0.1);
+    stroke-width: 0.4rem;
+}
+
+.loading-progress circle:last-child {
+    stroke: var(--green);
+}
+
+.loading-progress-text {
+    inset: calc(38vh + 5.5rem) 0 auto 0;
+    color: var(--text-3);
+    font-size: 13px;
+    font-weight: 600;
+}

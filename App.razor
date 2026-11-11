@@ -1,6 +1,10 @@
-﻿<Router AppAssembly="@typeof(App).Assembly">
-    <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)"/>
-        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
-    </Found>
-</Router>
+﻿#!/usr/bin/env sh
+set -eu
+
+# Install the .NET 10 SDK in the Cloudflare build environment
+curl -fsSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+chmod +x dotnet-install.sh
+./dotnet-install.sh --channel 10.0 --install-dir ./dotnet
+
+# Publish the Blazor WebAssembly application
+./dotnet/dotnet publish -c Release -o output

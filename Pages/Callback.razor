@@ -1,0 +1,36 @@
+﻿@page "/callback"
+
+@inject SpotifyAuthService SpotifyAuth
+@inject NavigationManager Navigation
+
+<div class="auth-message">
+    @if (string.IsNullOrEmpty(_error))
+    {
+        <h2>Connecting to Spotify...</h2>
+        <p>Completing authentication.</p>
+    }
+    else
+    {
+        <h2>Authentication failed</h2>
+        <p>@_error</p>
+        <a href="/">Return to dashboard</a>
+    }
+</div>
+
+@code {
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await SpotifyAuth.CompleteLoginAsync();
+
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

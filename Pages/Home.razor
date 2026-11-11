@@ -1,0 +1,188 @@
+﻿@page "/"
+
+@inject SpotifyAuthService SpotifyAuth
+@inject PlaybackController Player
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="dashboard">
+
+    <header class="dashboard-header">
+        <div class="brand">
+            <span class="spotify-icon">♫</span>
+            Spotify Remote
+        </div>
+
+        <span class="connection-status">
+            @(_isConnected ? "Connected" : "Disconnected")
+        </span>
+    </header>
+
+    <main class="dashboard-content">
+
+        @if (_loading)
+        {
+            <p>Checking Spotify connection...</p>
+        }
+        else if (_isConnected)
+        {
+            @* Side by side in landscape when there's a track (and so possibly lyrics). *@
+            <div class="player-layout @(Player.Playback?.Item is not null ? "with-lyrics" : null)">
+                <NowPlaying />
+                <LyricsPanel />
+            </div>
+
+            <DeviceSelector Devices="Player.Devices"
+                            SelectedDeviceId="@Player.SelectedDeviceId"
+                            SelectedDeviceIdChanged="@((string? id) => Player.SelectDevice(id))"
+                            IsLoading="Player.IsRefreshing"
+                            OnRefresh="Player.RefreshAsync"
+                            LastUpdated="Player.DevicesUpdatedAt" />
+
+            <button class="secondary-button"
+                    @onclick="DisconnectAsync">
+                Disconnect Spotify
+            </button>
+        }
+        else
+        {
+            <h1>Spotify Dashboard</h1>
+
+            <section class="connection-card">
+                <h2>Connect your Spotify account</h2>
+
+                <p>
+                    Use this device as a dedicated remote
+                    for your Spotify Connect devices.
+                </p>
+
+                <button class="primary-button"
+                        @onclick="ConnectAsync">
+                    Connect to Spotify
+                </button>
+            </section>
+        }
+
+        @if ((_error ?? Player.Error) is { Length: > 0 } message)
+        {
+            <p class="error-message">@message</p>
+        }
+
+    </main>
+
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _isConnected;
+    private string? _error;
+
+    private IJSObjectReference? _visibilityModule;
+    private DotNetObjectReference<Home>? _selfRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Player.StateChanged += OnPlayerStateChanged;
+        Player.AuthenticationLost += OnAuthenticationLost;
+
+        try
+        {
+            var token = await SpotifyAuth.GetAccessTokenAsync();
+
+            _isConnected = !string.IsNullOrEmpty(token);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        if (_isConnected)
+        {
+            await Player.StartAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        // Pause polling while the screen is off or the app is in the background.
+        try
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            _visibilityModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/pageVisibility.js");
+
+            var visible = await _visibilityModule.InvokeAsync<bool>("subscribe", _selfRef);
+            Player.SetPageVisible(visible);
+        }
+        catch (JSException)
+        {
+            // Visibility tracking is an optimisation; polling still works without it.
+        }
+    }
+
+    [JSInvokable]
+    public void OnVisibilityChanged(bool visible) => Player.SetPageVisible(visible);
+
+    private void OnPlayerStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnAuthenticationLost(string message)
+    {
+        // Token missing, expired beyond refresh, or revoked: clear it and ask to reconnect.
+        _ = InvokeAsync(async () =>
+        {
+            await SpotifyAuth.LogoutAsync();
+            _isConnected = false;
+            _error = message;
+            StateHasChanged();
+        });
+    }
+
+    private async Task ConnectAsync()
+    {
+        try
+        {
+            await SpotifyAuth.LoginAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        Player.Reset();
+        await SpotifyAuth.LogoutAsync();
+
+        _isConnected = false;
+        _error = null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Player.StateChanged -= OnPlayerStateChanged;
+        Player.AuthenticationLost -= OnAuthenticationLost;
+        Player.Stop();
+
+        if (_visibilityModule is not null)
+        {
+            try
+            {
+                await _visibilityModule.InvokeVoidAsync("unsubscribe");
+                await _visibilityModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Page is unloading.
+            }
+        }
+
+        _selfRef?.Dispose();
+    }
+}

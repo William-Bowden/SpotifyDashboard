@@ -1,0 +1,156 @@
+@* Now-playing card: artwork, track info, output device, progress and controls.
+   Reads everything from PlaybackController; a 1-second UI tick advances the
+   progress bar locally between polls (no extra API calls). *@
+
+@inject PlaybackController Player
+@implements IDisposable
+
+<section class="now-playing">
+
+    @if (Player.Playback is { } playback)
+    {
+        <div class="np-device">
+            <span class="np-device-dot @(playback.IsPlaying ? "playing" : null)" aria-hidden="true"></span>
+            @(playback.IsPlaying ? "Playing on" : "Paused on")
+            <strong>@(playback.Device?.Name ?? "an unknown device")</strong>
+        </div>
+
+        <div class="np-body">
+            <div class="np-art">
+                @if (GetArtworkUrl(playback.Item) is { } artUrl)
+                {
+                    <img src="@artUrl" alt="Album artwork for @playback.Item!.Album!.Name" />
+                }
+                else
+                {
+                    <div class="np-art-placeholder" aria-hidden="true">♫</div>
+                }
+            </div>
+
+            <div class="np-main">
+                <div class="np-meta">
+                    @if (playback.Item is { } track)
+                    {
+                        <div class="np-title" title="@track.Name">@track.Name</div>
+                        <div class="np-artist" title="@track.ArtistNames">@track.ArtistNames</div>
+                        @if (track.Album is { } album && !string.IsNullOrEmpty(album.Name))
+                        {
+                            <div class="np-album" title="@album.Name">@album.Name</div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="np-title">@DescribeNonTrack(playback.CurrentlyPlayingType)</div>
+                    }
+                </div>
+
+                @ControlsOrTransfer
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="np-idle">
+            <div class="np-art-placeholder small" aria-hidden="true">♫</div>
+            <p class="player-hint">Nothing is playing on any device right now.</p>
+            @ControlsOrTransfer
+        </div>
+    }
+
+</section>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+
+    private RenderFragment ControlsOrTransfer => __builder =>
+    {
+        if (Player.SelectedDevice is not { } selected)
+        {
+            <p class="player-hint">Select a device below to control playback.</p>
+        }
+        else if (Player.NeedsTransfer)
+        {
+            @* Only an explicit tap here moves playback to another device. *@
+            <div class="np-transfer">
+                @if (Player.ActiveDevice is { } active)
+                {
+                    <p class="player-hint">Selected: <strong>@selected.Name</strong> (playback is on @active.Name)</p>
+                }
+
+                <button class="primary-button"
+                        disabled="@Player.IsCommandBusy"
+                        @onclick="Player.TransferToSelectedAsync">
+                    @(Player.ActiveDevice is null ? $"Start playback on {selected.Name}" : $"Move playback to {selected.Name}")
+                </button>
+            </div>
+        }
+        else
+        {
+            <PlaybackControls IsPlaying="@(Player.Playback?.IsPlaying ?? false)"
+                              ProgressMs="Player.EstimatedProgressMs"
+                              DurationMs="@(Player.Playback?.Item?.DurationMs ?? 0)"
+                              Disabled="@(!Player.CanControl)"
+                              CanPause="@(!Player.IsDisallowed("pausing"))"
+                              CanResume="@(!Player.IsDisallowed("resuming"))"
+                              CanSkipNext="@(!Player.IsDisallowed("skipping_next"))"
+                              CanSkipPrevious="@(!Player.IsDisallowed("skipping_prev"))"
+                              CanSeek="@(!Player.IsDisallowed("seeking"))"
+                              OnPlayPause="Player.TogglePlayPauseAsync"
+                              OnNext="Player.NextAsync"
+                              OnPrevious="Player.PreviousAsync"
+                              OnSeek="Player.SeekAsync" />
+
+            <VolumeControl Volume="@(Player.Playback?.Device?.VolumePercent ?? selected.VolumePercent)"
+                           Supported="@(Player.Playback?.Device?.SupportsVolume ?? selected.SupportsVolume)"
+                           Disabled="@(!Player.CanControl)"
+                           OnVolumeChanged="Player.SetVolumeAsync" />
+        }
+    };
+
+    protected override void OnInitialized()
+    {
+        Player.StateChanged += OnPlayerStateChanged;
+        _ = TickAsync(_cts.Token);
+    }
+
+    private void OnPlayerStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>Re-renders once a second while playing so the progress bar advances.</summary>
+    private async Task TickAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                if (Player.Playback?.IsPlaying == true)
+                    await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Component disposed.
+        }
+    }
+
+    /// <summary>Spotify lists images largest first; the largest (~640px) stays sharp on high-DPI phones.</summary>
+    private static string? GetArtworkUrl(SpotifyTrack? track) =>
+        track?.Album?.Images
+            .OrderByDescending(i => i.Width ?? 0)
+            .FirstOrDefault(i => !string.IsNullOrEmpty(i.Url))
+            ?.Url;
+
+    private static string DescribeNonTrack(string? type) => type switch
+    {
+        "ad" => "Advertisement",
+        "episode" => "Podcast episode",
+        _ => "Unknown content"
+    };
+
+    public void Dispose()
+    {
+        Player.StateChanged -= OnPlayerStateChanged;
+        _cts.Cancel();
+    }
+}

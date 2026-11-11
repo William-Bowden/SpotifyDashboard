@@ -1,0 +1,54 @@
+@* Volume slider for the target device. The change is sent when the user
+   releases the slider (onchange), not on every pixel of movement. *@
+
+<div class="volume-control">
+    <span class="volume-icon" aria-hidden="true">@(DisplayVolume == 0 ? "🔇" : "🔊")</span>
+
+    @if (Supported && Volume is not null)
+    {
+        <input type="range"
+               class="volume-slider"
+               min="0"
+               max="100"
+               step="1"
+               value="@DisplayVolume"
+               disabled="@Disabled"
+               aria-label="Volume"
+               @oninput="OnVolumeInput"
+               @onchange="OnVolumeCommitAsync" />
+
+        <span class="volume-value">@DisplayVolume%</span>
+    }
+    else
+    {
+        <span class="volume-unavailable">Volume can't be controlled on this device</span>
+    }
+</div>
+
+@code {
+    [Parameter] public int? Volume { get; set; }
+    [Parameter] public bool Supported { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<int> OnVolumeChanged { get; set; }
+
+    private int? _dragVolume;
+
+    private int DisplayVolume => Math.Clamp(_dragVolume ?? Volume ?? 0, 0, 100);
+
+    private void OnVolumeInput(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var v))
+            _dragVolume = v;
+    }
+
+    private async Task OnVolumeCommitAsync(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var v))
+        {
+            _dragVolume = v;
+            await OnVolumeChanged.InvokeAsync(v);
+        }
+
+        _dragVolume = null;
+    }
+}

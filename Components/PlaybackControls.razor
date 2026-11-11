@@ -1,0 +1,92 @@
+@* Previous / play-pause / next buttons plus a seek bar.
+   Purely presentational: the parent decides which device commands go to. *@
+
+<div class="playback-controls">
+
+    <div class="seek-row">
+        <span class="time">@FormatTime(DisplayPositionMs)</span>
+
+        <input type="range"
+               class="seek-bar"
+               min="0"
+               max="@Math.Max(DurationMs, 1)"
+               step="1000"
+               value="@DisplayPositionMs"
+               disabled="@(Disabled || !CanSeek || DurationMs <= 0)"
+               aria-label="Seek"
+               @oninput="OnSeekInput"
+               @onchange="OnSeekCommitAsync" />
+
+        <span class="time">@FormatTime(DurationMs)</span>
+    </div>
+
+    <div class="button-row">
+        <button class="control-button"
+                disabled="@(Disabled || !CanSkipPrevious)"
+                aria-label="Previous track"
+                @onclick="OnPrevious">
+            ⏮
+        </button>
+
+        <button class="control-button play-button"
+                disabled="@(Disabled || (IsPlaying ? !CanPause : !CanResume))"
+                aria-label="@(IsPlaying ? "Pause" : "Play")"
+                @onclick="OnPlayPause">
+            @(IsPlaying ? "⏸" : "▶")
+        </button>
+
+        <button class="control-button"
+                disabled="@(Disabled || !CanSkipNext)"
+                aria-label="Next track"
+                @onclick="OnNext">
+            ⏭
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool IsPlaying { get; set; }
+    [Parameter] public int ProgressMs { get; set; }
+    [Parameter] public int DurationMs { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    [Parameter] public bool CanPause { get; set; } = true;
+    [Parameter] public bool CanResume { get; set; } = true;
+    [Parameter] public bool CanSkipNext { get; set; } = true;
+    [Parameter] public bool CanSkipPrevious { get; set; } = true;
+    [Parameter] public bool CanSeek { get; set; } = true;
+
+    [Parameter] public EventCallback OnPlayPause { get; set; }
+    [Parameter] public EventCallback OnNext { get; set; }
+    [Parameter] public EventCallback OnPrevious { get; set; }
+    [Parameter] public EventCallback<int> OnSeek { get; set; }
+
+    // While the user drags the slider, show their position instead of the
+    // last-known playback position so refreshes don't fight the drag.
+    private int? _dragPositionMs;
+
+    private int DisplayPositionMs => Math.Clamp(_dragPositionMs ?? ProgressMs, 0, Math.Max(DurationMs, 0));
+
+    private void OnSeekInput(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var ms))
+            _dragPositionMs = ms;
+    }
+
+    private async Task OnSeekCommitAsync(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var ms))
+        {
+            _dragPositionMs = ms;
+            await OnSeek.InvokeAsync(ms);
+        }
+
+        _dragPositionMs = null;
+    }
+
+    private static string FormatTime(int ms)
+    {
+        var t = TimeSpan.FromMilliseconds(Math.Max(ms, 0));
+        return t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
+    }
+}

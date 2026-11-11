@@ -1,0 +1,117 @@
+@* Lists Spotify Connect devices. Selection is informational only:
+   choosing a device here does NOT transfer playback. *@
+
+<section class="device-selector">
+    <div class="device-selector-header">
+        <h2>Devices</h2>
+
+        <button class="refresh-button"
+                @onclick="OnRefresh"
+                disabled="@IsLoading"
+                aria-label="Refresh devices">
+            @(IsLoading ? "Refreshing…" : "↻ Refresh")
+        </button>
+    </div>
+
+    @if (Devices is null)
+    {
+        <p class="device-hint">Loading devices…</p>
+    }
+    else if (Devices.Count == 0)
+    {
+        <div class="device-empty">
+            <p>No Spotify Connect devices found.</p>
+            <p class="device-hint">
+                Open Spotify on a speaker, computer, or TV, then tap Refresh.
+                Devices can take a few seconds to appear.
+            </p>
+        </div>
+    }
+    else
+    {
+        <ul class="device-list">
+            @foreach (var device in Devices)
+            {
+                var isSelected = device.IsControllable && device.Id == SelectedDeviceId;
+
+                <li>
+                    <button class="device-item @(isSelected ? "selected" : null) @(device.IsActive ? "active" : null)"
+                            disabled="@(!device.IsControllable)"
+                            aria-pressed="@isSelected"
+                            @onclick="() => SelectAsync(device)">
+
+                        <span class="device-icon" aria-hidden="true">@GetIcon(device.Type)</span>
+
+                        <span class="device-info">
+                            <span class="device-name">@device.Name</span>
+                            <span class="device-meta">
+                                @device.Type
+                                @if (device.IsPrivateSession)
+                                {
+                                    <span> · Private session</span>
+                                }
+                                @if (device.IsRestricted)
+                                {
+                                    <span> · Can't be controlled</span>
+                                }
+                                else if (string.IsNullOrEmpty(device.Id))
+                                {
+                                    <span> · Unavailable</span>
+                                }
+                            </span>
+                        </span>
+
+                        <span class="device-status">
+                            @if (device.IsActive)
+                            {
+                                <span class="active-badge">● Playing here</span>
+                            }
+                            @if (device.VolumePercent is int volume)
+                            {
+                                <span class="device-volume">🔊 @volume%</span>
+                            }
+                        </span>
+                    </button>
+                </li>
+            }
+        </ul>
+
+        @if (LastUpdated is DateTime updated)
+        {
+            <p class="device-hint">
+                Updated @updated.ToLocalTime().ToString("t").
+                Spotify's device list can lag by a few seconds.
+            </p>
+        }
+    }
+</section>
+
+@code {
+    [Parameter] public IReadOnlyList<SpotifyDevice>? Devices { get; set; }
+    [Parameter] public string? SelectedDeviceId { get; set; }
+    [Parameter] public EventCallback<string?> SelectedDeviceIdChanged { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnRefresh { get; set; }
+    [Parameter] public DateTime? LastUpdated { get; set; }
+
+    private Task SelectAsync(SpotifyDevice device)
+    {
+        if (!device.IsControllable)
+            return Task.CompletedTask;
+
+        return SelectedDeviceIdChanged.InvokeAsync(device.Id);
+    }
+
+    private static string GetIcon(string type) => type.ToLowerInvariant() switch
+    {
+        "computer" => "💻",
+        "smartphone" => "📱",
+        "tablet" => "📱",
+        "speaker" => "🔈",
+        "tv" => "📺",
+        "castvideo" or "castaudio" => "📡",
+        "automobile" => "🚗",
+        "gameconsole" => "🎮",
+        _ => "🎵"
+    };
+}

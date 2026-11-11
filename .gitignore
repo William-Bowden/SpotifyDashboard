@@ -1,0 +1,64 @@
+## .NET / Blazor Build Results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+publish/
+
+## IDE & User-Specific Files
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+## Secrets & Publish Profiles (Prevent credential leaks)
+*.[Pp]ublish.xml
+*.azurePubxml
+*.pubxml
+*.publishproj
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+
+## Local Databases (SQLite / SQL Server LocalDB)
+*.db
+*.db-shm
+*.db-wal
+*.mdf
+*.ldf
+*.ndf
+
+## Front-End / Node (If using Tailwind, Sass, or JS interop bundlers)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+## Test & Coverage Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.VisualState.xml
+TestResult.xml
+coverage/
+
+## OS Files
+.DS_Store
+Thumbs.db

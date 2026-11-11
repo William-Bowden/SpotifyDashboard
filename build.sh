@@ -34,3 +34,12 @@ fi
 echo "Verifying output..."
 test -f output/wwwroot/index.html
 echo "Build completed successfully!"
+
+echo "=== OUTPUT DIRECTORY CONTENTS ==="
+ls -la output/wwwroot
+
+echo "=== INDEX.HTML PREVIEW ==="
+head -n 20 output/wwwroot/index.html
+
+echo "=== BUILD SCRIPT IN OUTPUT? ==="
+find output/wwwroot -name "build.sh"

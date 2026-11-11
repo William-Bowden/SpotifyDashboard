@@ -13,6 +13,9 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+[Oo]utput/
+[Dd]otnet/
+[Dd]otnet-install.sh
 publish/
 
 ## IDE & User-Specific Files
